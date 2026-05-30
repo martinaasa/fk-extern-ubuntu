@@ -4,6 +4,10 @@ set -Eeuo pipefail
 SCRIPT_NAME="$(basename "$0")"
 LOG_FILE="/tmp/fkextern-install.log"
 
+# ============================================================
+# FK Extern package defaults
+# ============================================================
+
 FKEXTERN_VERSION="2605"
 FKEXTERN_PACKAGE_BASENAME="FKextern2605_ubuntu_PoC"
 FKEXTERN_BASE_URL="https://download.forsakringskassan.se/FK/Linux"
@@ -32,6 +36,10 @@ DRY_RUN=0
 FORCE_UNSUPPORTED_OS=0
 
 APT_UPDATED=0
+
+# ============================================================
+# Logging / utility
+# ============================================================
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
@@ -205,6 +213,10 @@ remove_path_if_exists() {
   fi
 }
 
+# ============================================================
+# Preflight
+# ============================================================
+
 check_ubuntu() {
   log "=== Kontrollerar OS ==="
 
@@ -308,6 +320,10 @@ Installera Firefox som .deb-version:
   ok "Firefox .deb-kontroll OK."
 }
 
+# ============================================================
+# Media download / discovery
+# ============================================================
+
 has_required_media_files() {
   local dir="$1"
 
@@ -346,11 +362,12 @@ download_file() {
 
   if command -v curl >/dev/null 2>&1; then
     local http_code
+
     http_code="$(
       curl \
+        --fail \
         --location \
-        --silent \
-        --show-error \
+        --progress-bar \
         --output "$output" \
         --write-out "%{http_code}" \
         "$url" 2>"$status_file" || true
@@ -377,7 +394,10 @@ download_file() {
   fi
 
   if command -v wget >/dev/null 2>&1; then
-    if wget -O "$output" "$url" 2>"$status_file"; then
+    if wget \
+        --progress=bar:force \
+        -O "$output" \
+        "$url" 2>"$status_file"; then
       rm -f "$status_file"
       return 0
     fi
@@ -431,6 +451,7 @@ download_and_extract_media() {
 
     for url in "${urls_to_try[@]}"; do
       log "Försöker hämta: $url"
+      log "Paketet är stort. Nedladdningen kan ta en stund."
 
       set +e
       download_file "$url" "$zip_path"
@@ -597,6 +618,10 @@ apt_install_deb() {
   run sudo apt-get install -y "$deb_path"
 }
 
+# ============================================================
+# Reset
+# ============================================================
+
 reset_existing_installation() {
   log "=== Rensar tidigare FK Extern-installation ==="
 
@@ -652,6 +677,10 @@ reset_existing_installation() {
   ok "Rensning klar."
 }
 
+# ============================================================
+# Installation
+# ============================================================
+
 install_pcscd_and_reader_tools() {
   log "=== Installerar pcscd och kortläsarverktyg ==="
 
@@ -659,6 +688,7 @@ install_pcscd_and_reader_tools() {
   apt_install_package "pcsc-tools"
   apt_install_package "libccid"
   apt_install_package "libnss3-tools"
+  apt_install_package "python3"
 
   log "Aktiverar pcscd..."
   run sudo systemctl enable pcscd
@@ -728,6 +758,129 @@ install_netid() {
   ok "NetiD installerat."
 }
 
+configure_citrix_smartcard() {
+  log "=== Konfigurerar Citrix SmartCard/NetiD ==="
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] skulle konfigurera Citrix SmartCard/NetiD"
+    return
+  fi
+
+  [[ -f "$NETID_LIB" ]] || fail "Saknar NetiD-bibliotek: $NETID_LIB"
+
+  local module_ini="/opt/Citrix/ICAClient/config/module.ini"
+  local authman_xml="/opt/Citrix/ICAClient/config/AuthManConfig.xml"
+  local scard_json="/opt/Citrix/ICAClient/config/scardConfig.json"
+  local usb_conf="/opt/Citrix/ICAClient/usb.conf"
+  local backup_suffix
+  backup_suffix="$(date +%Y%m%d-%H%M%S)"
+
+  for file in "$module_ini" "$authman_xml" "$scard_json" "$usb_conf"; do
+    if [[ -f "$file" ]]; then
+      sudo cp -a "$file" "$file.bak.$backup_suffix"
+      log "Backup: $file.bak.$backup_suffix"
+    else
+      warn "Saknar Citrix-konfigfil: $file"
+    fi
+  done
+
+  if [[ -f "$module_ini" ]]; then
+    sudo sed -i \
+      -e 's/^DriverName *=.*/DriverName = VDSCARDV2.DLL/' \
+      -e 's/^PCSCLibraryName *=.*/PCSCLibraryName = libpcsclite.so/' \
+      -e 's/^UseInternalSCard *=.*/UseInternalSCard = TRUE/' \
+      "$module_ini"
+  fi
+
+  if [[ -f "$authman_xml" ]]; then
+    sudo python3 - "$authman_xml" "$NETID_LIB" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+netid = sys.argv[2]
+text = path.read_text(encoding="utf-8", errors="replace")
+
+marker = "<key>PKCS11module</key>"
+idx = text.find(marker)
+if idx == -1:
+    raise SystemExit("PKCS11module key not found")
+
+value_start = text.find("<value>", idx)
+value_end = text.find("</value>", value_start)
+
+if value_start == -1 or value_end == -1:
+    raise SystemExit("PKCS11module value not found")
+
+value_start += len("<value>")
+text = text[:value_start] + netid + text[value_end:]
+
+path.write_text(text, encoding="utf-8")
+PY
+  fi
+
+  if [[ -f "$scard_json" ]]; then
+    sudo python3 - "$scard_json" "$NETID_LIB" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+netid = sys.argv[2]
+
+data = json.loads(path.read_text(encoding="utf-8"))
+data["DefaultPKCS11Lib"] = netid
+
+for key in ("PKCS11Modules", "PKCS11ModuleList", "Modules"):
+    value = data.get(key)
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                name = str(item.get("Name", item.get("name", "")))
+                lib = item.get("PKCS11Lib") or item.get("Library") or item.get("library")
+                if name == "Net iD" or lib in ("/usr/lib/netid/libnetid.so", "/lib/netid/libnetid.so"):
+                    if "PKCS11Lib" in item:
+                        item["PKCS11Lib"] = netid
+                    elif "Library" in item:
+                        item["Library"] = netid
+                    elif "library" in item:
+                        item["library"] = netid
+                    else:
+                        item["PKCS11Lib"] = netid
+
+path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+PY
+  fi
+
+  if [[ -f "$usb_conf" ]]; then
+    if ! grep -Eq '^DENY:[[:space:]]+class=0b' "$usb_conf"; then
+      log "Lägger till DENY för smartcard i Citrix USB-config."
+      local tmp
+      tmp="$(mktemp)"
+      {
+        echo "DENY:  class=0b # Smartcard readers should use smart card remoting, not generic USB"
+        cat "$usb_conf"
+      } > "$tmp"
+      sudo cp "$tmp" "$usb_conf"
+      rm -f "$tmp"
+    else
+      log "Citrix USB-config har redan DENY för class=0b."
+    fi
+  fi
+
+  log "Verifierar Citrix SmartCard-konfig:"
+  grep -n -A8 -B2 '\[SmartCard\]' "$module_ini" 2>/dev/null | tee -a "$LOG_FILE" || true
+  grep -n -A3 -B3 'PKCS11module' "$authman_xml" 2>/dev/null | tee -a "$LOG_FILE" || true
+  grep -n -A3 -B3 'DefaultPKCS11Lib' "$scard_json" 2>/dev/null | tee -a "$LOG_FILE" || true
+  grep -n 'class=0b' "$usb_conf" 2>/dev/null | tee -a "$LOG_FILE" || true
+
+  ok "Citrix SmartCard/NetiD-konfiguration klar."
+}
+
+# ============================================================
+# Firefox NSS / NetiD
+# ============================================================
+
 remove_existing_netid_from_profile() {
   local profile_dir="$1"
 
@@ -790,7 +943,7 @@ register_netid_in_firefox_profiles() {
   local firefox_root="$HOME/.mozilla/firefox"
   mkdir -p "$firefox_root"
 
-  local found=0
+  local profile_dirs=()
   local profile_dir
 
   if [[ -f "$firefox_root/profiles.ini" ]]; then
@@ -803,23 +956,27 @@ register_netid_in_firefox_profiles() {
         profile_dir="$firefox_root/$profile_path"
       fi
 
-      if [[ -d "$profile_dir" ]]; then
-        found=1
-        register_netid_in_profile "$profile_dir"
-      fi
+      [[ -d "$profile_dir" ]] && profile_dirs+=("$profile_dir")
     done < <(awk -F= '/^Path=/{print $2}' "$firefox_root/profiles.ini")
   fi
 
   while IFS= read -r certdb; do
-    profile_dir="$(dirname "$certdb")"
-    found=1
-    register_netid_in_profile "$profile_dir"
+    profile_dirs+=("$(dirname "$certdb")")
   done < <(find "$firefox_root" -maxdepth 2 -type f -name cert9.db 2>/dev/null)
 
-  if [[ "$found" -eq 0 ]]; then
+  if [[ "${#profile_dirs[@]}" -eq 0 ]]; then
     warn "Hittade ingen Firefox-profil. Starta Firefox en gång och kör scriptet igen."
+    return
   fi
+
+  printf '%s\n' "${profile_dirs[@]}" | sort -u | while IFS= read -r profile_dir; do
+    register_netid_in_profile "$profile_dir"
+  done
 }
+
+# ============================================================
+# Card reader check
+# ============================================================
 
 check_card_reader() {
   log "=== Läser in/kontrollerar kortläsare ==="
@@ -838,7 +995,7 @@ check_card_reader() {
   sleep 2
 
   if command -v pcsc_scan >/dev/null 2>&1; then
-    log "Kör pcsc_scan i några sekunder..."
+    log "Kör pcsc_scan i max 8 sekunder. Timeout är förväntat eftersom pcsc_scan annars fortsätter lyssna..."
     timeout 8 pcsc_scan 2>&1 | tee -a "$LOG_FILE" || true
   else
     warn "pcsc_scan saknas."
@@ -860,6 +1017,10 @@ check_card_reader() {
     [[ "$any_profile" -eq 1 ]] || warn "Ingen Firefox NSS-db hittades för slot-kontroll."
   fi
 }
+
+# ============================================================
+# UX
+# ============================================================
 
 print_preflight() {
   cat <<EOF
@@ -884,6 +1045,7 @@ Support:
 Firefox:
   måste redan vara .deb
   installeras inte av detta script
+  se: https://github.com/martinaasa/ubuntu-firefox-deb-migration
 
 Media:
   PACKAGE_URL=$PACKAGE_URL
@@ -949,6 +1111,13 @@ Där ska Net iD synas.
 Kortläsare:
   Kontrollera loggen för pcsc_scan och NetiD-slots.
 
+Citrix:
+  SmartCard-konfiguration ska peka på:
+    $NETID_LIB
+
+Viktigt:
+  Starta om datorn innan första anslutning till Citrix/remote desktop.
+
 Logg:
   $LOG_FILE
 
@@ -990,6 +1159,7 @@ main() {
   install_pcscd_and_reader_tools
   install_citrix
   install_netid
+  configure_citrix_smartcard
   register_netid_in_firefox_profiles
   check_card_reader
   print_summary
