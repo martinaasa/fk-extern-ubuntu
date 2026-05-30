@@ -1,6 +1,6 @@
 # FK Extern Ubuntu helper
 
-Inofficiellt hjälpscript för installation av FK Extern-komponenter på Ubuntu.
+Inofficiella hjälpscript för installation av FK Extern-komponenter på Ubuntu.
 
 ## Viktigt
 
@@ -15,12 +15,7 @@ Scriptet är endast avsett för:
 - användare som redan har rätt att använda FK Extern
 - FK Extern-paketet som publiceras av Försäkringskassan
 
-Scriptet är inte avsett för:
-
-- privatpersoner
-- andra organisationer
-- andra Linux-distributioner än Ubuntu
-- generell Citrix-, NetiD-, smartcard- eller Firefox-support
+Scriptet är inte avsett för privatpersoner, andra organisationer, andra Linux-distributioner eller generell Citrix-, Net iD-, smartcard- eller Firefox-support.
 
 Scriptet ger inte åtkomst till några tjänster. Åtkomst styrs fortfarande av behörighet, smartcard, certifikat, PIN och övriga FK Extern-förutsättningar.
 
@@ -32,19 +27,18 @@ Scriptet hanterar installation av FK Extern-komponenter på Ubuntu:
 - `pcsc-tools`
 - `libccid`
 - `libnss3-tools`
+- `libpcsclite-dev`
 - Citrix Workspace App från FK:s Ubuntu-paket
 - Citrix USB-stöd från FK:s Ubuntu-paket
 - PointSharp Net iD Client från FK:s Ubuntu-paket
 - registrering av Net iD PKCS#11-modul i Firefox
 - grundläggande kontroll av kortläsare
 
-Scriptet hanterar **inte**:
+Scriptet hanterar inte installation eller migrering av Firefox. För det finns separat repo:
 
-- installation av Firefox
-- migrering från Snap/Flatpak-Firefox
-- borttagning av gamla Firefox-installationer
-- felsökning av personliga Firefox-inställningar
-- support på NSGW, Citrix-miljöer eller FK:s externa tjänster
+```text
+https://github.com/martinaasa/ubuntu-firefox-deb-migration
+```
 
 ## Krav: icke-sandboxad Firefox
 
@@ -54,25 +48,38 @@ FK Extern med Net iD kräver en icke-sandboxad Firefox-installation som kan ladd
 /lib/netid/libnetid.so
 ```
 
-Snap- och Flatpak-versioner av Firefox stöds därför inte av detta script. De kan blockera åtkomst till systembibliotek via sandboxning, vilket gör att Net iD-modulen inte kan laddas korrekt.
+Snap- och Flatpak-versioner av Firefox stöds därför inte av detta script. Firefox ska vara installerad som riktig `.deb`.
 
-Firefox ska vara installerad som riktig `.deb`.
+## Installation
 
-För installation och migrering till Firefox `.deb`, se separat repo:
-
-```text
-https://github.com/martinaasa/ubuntu-firefox-deb-migration
+```bash
+git clone <repo-url>
+cd fkextern-ubuntu-helper
+chmod +x scripts/install-fkextern.sh
+./scripts/install-fkextern.sh
 ```
 
-Detta FK Extern-script installerar inte Firefox. Om Firefox inte är en riktig `.deb` failar scriptet och hänvisar till repot ovan.
+Scriptet visar en preflight-sammanfattning innan det gör ändringar.
 
-## Stödda system
+Kör utan prompt:
 
-Scriptet är endast avsett för Ubuntu.
+```bash
+./scripts/install-fkextern.sh --yes
+```
 
-Andra Linux-distributioner stöds inte.
+## Viktigt efter installation
 
-Om scriptet körs på en Ubuntu-version som inte är uttryckligen testad kommer det att varna eller avbryta, beroende på flaggor.
+Starta om datorn efter installationen innan du testar Citrix/remote desktop.
+
+Detta är inte bara ett allmänt tips. Utan omstart kan gamla `pcscd`-, Net iD- eller Citrix-processer ligga kvar i fel läge. Symptom kan vara att Citrix-sessionen startar men att smartkortet rapporteras som tomt, eller att PIN-flödet inte kommer igång.
+
+Installationsscriptet skapar markören:
+
+```text
+/tmp/fkextern-reboot-required
+```
+
+Diagnos-scriptet varnar om denna finns kvar.
 
 ## FK Extern-paket
 
@@ -88,18 +95,7 @@ Standardpaketet i scriptet är:
 FKextern2605_ubuntu_PoC
 ```
 
-Scriptet testar både:
-
-```text
-https://download.forsakringskassan.se/FK/Linux/FKextern2605_ubuntu_PoC
-https://download.forsakringskassan.se/FK/Linux/FKextern2605_ubuntu_PoC.zip
-```
-
-Om paketet saknas är den troligaste orsaken att FK har publicerat en nyare version och ersatt den gamla. Då behöver scriptet uppdateras med aktuellt paketnamn och aktuella filnamn.
-
-## Förväntade filer i FK-paketet
-
-Scriptet förväntar sig följande filer i FK-paketet:
+Förväntade filer:
 
 ```text
 icaclient_26.01.0.150_amd64.deb
@@ -107,75 +103,38 @@ ctxusb_26.01.0.150_amd64.deb
 netidsetup_v1.3.4.10_linux_fk-001.tar.gz
 ```
 
-Om FK publicerar ett nytt paket med andra versionsnummer behöver scriptet uppdateras.
-
-## Installation
-
-Klona repot och kör installationsscriptet:
-
-```bash
-git clone <repo-url>
-cd fkextern-ubuntu-helper
-
-chmod +x scripts/install-fkextern.sh
-./scripts/install-fkextern.sh
-```
-
-Scriptet visar en preflight-sammanfattning innan det gör ändringar.
-
-För att köra utan bekräftelseprompt:
-
-```bash
-./scripts/install-fkextern.sh --yes
-```
+Om paketet saknas är den troligaste orsaken att FK har publicerat en nyare version. Då behöver scriptet uppdateras med aktuellt paketnamn och aktuella filnamn.
 
 ## Vanliga flaggor
 
-Visa hjälp:
-
 ```bash
 ./scripts/install-fkextern.sh --help
-```
-
-Testkör utan att göra ändringar:
-
-```bash
 ./scripts/install-fkextern.sh --dry-run
-```
-
-Kör utan att rensa tidigare Citrix/NetiD-installation:
-
-```bash
 ./scripts/install-fkextern.sh --no-reset
-```
-
-Använd lokalt uppackat FK-paket:
-
-```bash
-./scripts/install-fkextern.sh --media-dir /path/to/ubuntu_extern2605
-```
-
-Tvinga ny hämtning av FK-paketet:
-
-```bash
 ./scripts/install-fkextern.sh --force-download
-```
-
-Hoppa över kortläsarkontroll:
-
-```bash
+./scripts/install-fkextern.sh --media-dir /path/to/ubuntu_extern2605
 ./scripts/install-fkextern.sh --skip-card-reader-check
+./scripts/install-fkextern.sh --force-unsupported-os
 ```
 
-Kör på ej uttryckligen testad Ubuntu-version:
+## Konservativ Citrix-konfiguration
+
+Scriptet ändrar inte Citrix SmartCard-konfiguration som standard.
+
+Det var ett medvetet val. Citrix/FK-paketets standardkonfiguration bör lämnas orörd om den fungerar. Scriptet installerar nödvändiga paket och beroenden, men skriver inte om `module.ini`, `AuthManConfig.xml`, `scardConfig.json` eller `usb.conf` utan explicit felsökningsflagga.
+
+Felsökningsflaggor finns, men bör inte användas normalt:
 
 ```bash
-./scripts/install-fkextern.sh --force-unsupported-os
+./scripts/install-fkextern.sh --reset-user-citrix-cache
+./scripts/install-fkextern.sh --configure-citrix-smartcard
+./scripts/install-fkextern.sh --set-citrix-pcsclibrary-full-path
+./scripts/install-fkextern.sh --disable-citrix-usb-smartcard
 ```
 
 ## Diagnostik
 
-Diagnostikscriptet ändrar inget på systemet. Det samlar bara status för Firefox, Net iD, Citrix och kortläsare.
+Diagnostikscriptet ändrar inget på systemet. Det samlar status för Firefox, Net iD, Citrix och kortläsare.
 
 ```bash
 chmod +x scripts/diagnose-fkextern.sh
@@ -188,54 +147,58 @@ Loggen skrivs till:
 /tmp/fkextern-diagnose.log
 ```
 
-## Loggar
-
-Installationsloggen skrivs till:
+Diagnosen letar bland annat efter:
 
 ```text
-/tmp/fkextern-install.log
+libpcsclite.so saknas
+wfica segfault
+gamla adapter-processer
+defunct icasessionmgr
+Failed to cache VDA certificate
+No PIN acquired
+Session launch readiness achieved
+Inserting new Reader
 ```
 
-Loggen kan innehålla information om lokal miljö, paketversioner och sökvägar. Dela den inte brett om den innehåller information du inte vill sprida.
+## Known good i Citrix-loggen
 
-## Vad scriptet gör
+Ett fungerande Citrix-flöde kan fortfarande innehålla rader som ser störiga ut, till exempel:
 
-Installationsscriptet gör i huvudsak detta:
+```text
+Failed to cache VDA certificate
+ReadOneLine: no line 76
+OpenGL rendering enabled
+```
 
-1. kontrollerar att systemet är Ubuntu
-2. kontrollerar att Firefox är en riktig `.deb`
-3. failar om Firefox är Snap eller Flatpak
-4. letar efter FK Extern-paket lokalt
-5. hämtar FK Extern-paket från FK:s nedladdningsyta om det saknas lokalt
-6. packar upp FK Extern-paketet
-7. kontrollerar att förväntade mediafiler finns
-8. rensar tidigare Citrix/Net iD-installation om reset är aktivt
-9. installerar `pcscd` och kortläsarstöd
-10. installerar Citrix Workspace App
-11. installerar Citrix USB-stöd
-12. installerar PointSharp Net iD Client
-13. registrerar Net iD:s PKCS#11-modul i Firefox
-14. kör grundläggande kontroll av kortläsare
+De är inte nödvändigtvis blockerande.
 
-## Citrix-frågor under installation
+Viktigare tecken på att sessionen faktiskt fungerar är:
 
-Om Citrix-installationen frågar om följande komponenter ska svaret vara `no`:
+```text
+Succeed in launch session
+ncsConnected
+Session launch readiness achieved
+ModuleLoad: /opt/Citrix/ICAClient/VDSCARDV2.DLL
+Inserting new Reader
+```
 
-- AppProtection
-- DeviceTrust
-- EPAClient
+Om sessionen startar men remote desktop säger att smartkortet är tomt, och loggen visar `No PIN acquired`, starta om datorn om installationen nyss körts.
 
-## Om FK-paketet inte hittas
+## libpcsclite-dev
 
-Om scriptet inte hittar FK-paketet på förväntad adress visas ett fel som förklarar att paketet sannolikt ersatts av en nyare version.
+Citrix kan försöka ladda osuffixade:
 
-Åtgärden är då att uppdatera scriptet med:
+```text
+libpcsclite.so
+```
 
-- nytt paketnamn
-- nytt Citrix Workspace-filnamn
-- nytt Citrix USB-filnamn
-- nytt Net iD-filnamn
-- eventuellt justerad installationslogik
+På Ubuntu kommer denna normalt från:
+
+```text
+libpcsclite-dev
+```
+
+Därför installerar scriptet `libpcsclite-dev` även om det kan kännas som ett utvecklingspaket.
 
 ## Avgränsning och ansvar
 

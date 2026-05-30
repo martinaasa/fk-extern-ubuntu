@@ -2,15 +2,9 @@
 
 ## Firefox failar i install-scriptet
 
-Scriptet kräver riktig Firefox `.deb`.
+Scriptet kräver riktig Firefox `.deb`. Snap- och Flatpak-Firefox stöds inte.
 
-Snap- och Flatpak-Firefox stöds inte för FK Extern/NetiD eftersom Firefox behöver kunna ladda:
-
-```text
-/lib/netid/libnetid.so
-```
-
-Installera/migrera Firefox med:
+Se:
 
 ```text
 https://github.com/martinaasa/ubuntu-firefox-deb-migration
@@ -18,21 +12,9 @@ https://github.com/martinaasa/ubuntu-firefox-deb-migration
 
 ## FK-paketet hittas inte
 
-Om scriptet säger att FK-paketet inte hittas på:
+Om paketet saknas på `https://download.forsakringskassan.se/FK/Linux/` har FK sannolikt publicerat en nyare version. Uppdatera paketnamn och filnamn i installationsscriptet.
 
-```text
-https://download.forsakringskassan.se/FK/Linux/
-```
-
-är det troligaste att FK har publicerat en nyare version. Uppdatera:
-
-- `FKEXTERN_VERSION`
-- `FKEXTERN_PACKAGE_BASENAME`
-- `CITRIX_CLIENT_DEB`
-- `CITRIX_USB_DEB`
-- `NETID_ARCHIVE`
-
-## Net iD syns inte i Firefox
+## Citrix fastnar på Connecting
 
 Kör:
 
@@ -40,34 +22,43 @@ Kör:
 ./scripts/diagnose-fkextern.sh
 ```
 
-Kontrollera att:
+Kontrollera särskilt:
 
-- Firefox kör från `/usr/lib/firefox`, inte `/snap` eller `/app`
-- `/lib/netid/libnetid.so` finns
-- `modutil` visar `Net iD` i Firefox-profilen
+- om `wfica` kör
+- om `icasessionmgr` är `<defunct>`
+- om `libpcsclite.so` saknas
+- om `wfica` segfaultar
+- om `Session launch readiness achieved` finns i Citrix-loggen
 
-## Kortläsaren hittas inte
+## Sessionen startar men smartkortet verkar tomt
 
-Kontrollera:
+Kontrollera om Citrix-loggen innehåller:
 
-```bash
-systemctl status pcscd --no-pager
-pcsc_scan
+```text
+No PIN acquired
 ```
 
-Sätt i kortläsaren igen och kör om:
+Om installationen nyss körts: starta om datorn.
 
-```bash
-sudo systemctl restart pcscd
-pcsc_scan
+## libpcsclite.so saknas
+
+Fel i Citrix-loggen:
+
+```text
+host_DynamicLoad:load(libpcsclite.so: cannot open shared object file: No such file or directory)
 ```
 
-## Citrix-frågor under installation
+Åtgärd:
 
-Om Citrix-installationen frågar om:
+```bash
+sudo apt install libpcsclite-dev
+sudo ldconfig
+```
 
-- AppProtection
-- DeviceTrust
-- EPAClient
+## Rensa användarens Citrix-cache
 
-välj `no`, enligt FK:s instruktion.
+```bash
+./scripts/install-fkextern.sh --reset-user-citrix-cache
+```
+
+Detta flyttar undan `~/.ICAClient` till en backup-katalog.
