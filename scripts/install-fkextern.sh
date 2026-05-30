@@ -309,9 +309,9 @@ check_firefox_deb() {
 has_required_media_files() {
   local directory="$1"
 
-  [[ -f "$directory/$CITRIX_CLIENT_DEB" ]] \
-    && [[ -f "$directory/$CITRIX_USB_DEB" ]] \
-    && [[ -f "$directory/$NETID_ARCHIVE" ]]
+  [[ -f "$directory/$CITRIX_CLIENT_DEB" ]] &&
+    [[ -f "$directory/$CITRIX_USB_DEB" ]] &&
+    [[ -f "$directory/$NETID_ARCHIVE" ]]
 }
 
 find_media_dir_under() {
@@ -342,17 +342,23 @@ download_file() {
   rm -f "$output"
 
   if command -v curl >/dev/null 2>&1; then
+    log "Använder curl med progress-bar."
+
+    set +e
     http_code="$(
       curl \
         --fail \
         --location \
         --progress-bar \
+        --show-error \
         --output "$output" \
         --write-out "%{http_code}" \
-        "$url" 2>"$status_file" || true
+        "$url"
     )"
+    local curl_rc=$?
+    set -e
 
-    if [[ "$http_code" == "200" ]]; then
+    if [[ "$curl_rc" -eq 0 && "$http_code" == "200" ]]; then
       rm -f "$status_file"
       return 0
     fi
@@ -365,35 +371,36 @@ download_file() {
     fi
 
     log "Nedladdning misslyckades från $url"
+    log "curl exit code: $curl_rc"
     log "HTTP-status: ${http_code:-okänd}"
-
-    if [[ -s "$status_file" ]]; then
-      log "curl-fel: $(cat "$status_file")"
-    fi
 
     rm -f "$status_file"
     return 1
   fi
 
   if command -v wget >/dev/null 2>&1; then
-    if wget --progress=bar:force -O "$output" "$url" 2>"$status_file"; then
+    log "Använder wget med progress-bar."
+
+    set +e
+    wget \
+      --progress=bar:force \
+      -O "$output" \
+      "$url"
+    local wget_rc=$?
+    set -e
+
+    if [[ "$wget_rc" -eq 0 ]]; then
       rm -f "$status_file"
       return 0
     fi
 
     rm -f "$output"
 
-    if grep -q 404 "$status_file"; then
-      rm -f "$status_file"
-      return 44
-    fi
-
     log "Nedladdning misslyckades från $url"
+    log "wget exit code: $wget_rc"
 
-    if [[ -s "$status_file" ]]; then
-      log "wget-fel: $(cat "$status_file")"
-    fi
-
+    # wget har inte lika ren 404-hantering utan att parsa output.
+    # Returnera 1 här. Paketfelsöket kommer ändå ge tydligt fel senare.
     rm -f "$status_file"
     return 1
   fi
@@ -438,6 +445,7 @@ download_and_extract_media() {
       log "Paketet är stort. Nedladdningen kan ta en stund."
 
       set +e
+      log "Progress visas direkt i terminalen och skrivs normalt inte till loggfilen."
       download_file "$url" "$zip_path"
       rc=$?
       set -e
@@ -538,6 +546,105 @@ copy_deb_to_tmp() {
   echo "$target_path"
 }
 
+preseed_citrix_optional_components() {
+  local deb_path="$1"
+  local package_name="$2"
+  local control_directory
+  local templates_file
+  local selections_file
+  local question_name
+  local matched_questions
+
+  log "=== Förkonfigurerar Citrix-val ==="
+  log "Scriptet sätter Citrix AppProtection, DeviceTrust och EPAClient/Endpoint Analysis till 'false'."
+  log "Detta görs för att FK Extern 2605-instruktionen anger att dessa val ska besvaras med Nej."
+  log "Om FK i framtiden börjar kräva AppProtection, DeviceTrust eller EPAClient behöver detta script ändras."
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] skulle förkonfigurera Citrix AppProtection/DeviceTrust/EPAClient till false"
+    return
+  fi
+
+  if ! command -v debconf-set-selections >/dev/null 2>&1; then
+    warn "debconf-set-selections saknas. Citrix-installationen kan fråga interaktivt."
+    return
+  fi
+
+  control_directory="$(mktemp -d)"
+  selections_file="$(mktemp)"
+  matched_questions=0
+
+  if ! dpkg-deb -e "$deb_path" "$control_directory" >/dev/null 2>&1; then
+    warn "Kunde inte läsa debconf-metadata från $deb_path"
+    rm -rf "$control_directory"
+    rm -f "$selections_file"
+    return
+  fi
+
+  templates_file="$control_directory/templates"
+
+  if [[ ! -f "$templates_file" ]]; then
+    log "Inga debconf-templates hittades i $deb_path"
+    rm -rf "$control_directory"
+    rm -f "$selections_file"
+    return
+  fi
+
+  while IFS= read -r question_name; do
+    matched_questions=1
+    log "Sätter debconf-fråga till false: $question_name"
+    printf '%s %s boolean false\n' "$package_name" "$question_name" >>"$selections_file"
+  done < <(
+    awk '
+      function flush() {
+        searchable_text = tolower(template_name " " description)
+
+        if (template_name != "" && question_type == "boolean" && searchable_text ~ /(app.?protection|device.?trust|epaclient|epa|endpoint.?analysis)/) {
+          print template_name
+        }
+      }
+
+      /^Template:/ {
+        flush()
+        template_name = $2
+        question_type = ""
+        description = ""
+        next
+      }
+
+      /^Type:/ {
+        question_type = $2
+        next
+      }
+
+      /^[A-Za-z-]+:/ {
+        description = description " " $0
+        next
+      }
+
+      /^ / {
+        description = description " " $0
+        next
+      }
+
+      END {
+        flush()
+      }
+    ' "$templates_file"
+  )
+
+  if [[ "$matched_questions" == "1" ]]; then
+    sudo debconf-set-selections "$selections_file"
+    ok "Citrix AppProtection/DeviceTrust/EPAClient är förkonfigurerade till false."
+  else
+    warn "Hittade inga matchande Citrix-frågor att förkonfigurera."
+    warn "Om installationen frågar om AppProtection/DeviceTrust/EPAClient ska du svara Nej enligt FK Extern 2605-instruktionen."
+  fi
+
+  rm -rf "$control_directory"
+  rm -f "$selections_file"
+}
+
 install_deb_package() {
   local deb_path="$1"
   local package_hint="$2"
@@ -558,9 +665,14 @@ install_deb_package() {
   tmp_deb_path="$(copy_deb_to_tmp "$deb_path")"
 
   log "Installerar deb-paket: $tmp_deb_path"
-  log "Om Citrix frågar om AppProtection/DeviceTrust/EPAClient: välj no."
 
-  run sudo apt-get install -y "$tmp_deb_path"
+  if [[ "$package_name" == "icaclient" ]]; then
+    preseed_citrix_optional_components "$tmp_deb_path" "$package_name"
+    log "Installerar icaclient med DEBIAN_FRONTEND=noninteractive."
+    log "AppProtection/DeviceTrust/EPAClient ska därmed inte fråga interaktivt."
+  fi
+
+  run sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp_deb_path"
 }
 
 stop_user_processes() {
@@ -757,7 +869,7 @@ configure_citrix_optional() {
   local tmp_file
 
   if [[ "$SET_CITRIX_PCSCLIBRARY_FULL_PATH" != "1" &&
-    "$DISABLE_CITRIX_USB_SMARTCARD" != "1" ]]; then
+        "$DISABLE_CITRIX_USB_SMARTCARD" != "1" ]]; then
     log "Hoppar över ändring av Citrix-konfig. Standardkonfiguration lämnas orörd."
     return
   fi
@@ -832,7 +944,7 @@ register_netid_in_profile() {
     return
   fi
 
-  log "Registrerar NetI D i Firefox-profil: $profile_directory"
+  log "Registrerar NetiD i Firefox-profil: $profile_directory"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     log "[dry-run] skulle registrera NetiD i Firefox-profil"
@@ -949,6 +1061,11 @@ Scriptet är vibe-kodat. Läs igenom det innan användning.
 
 Firefox måste redan vara .deb.
 
+Citrix AppProtection/DeviceTrust/EPAClient:
+  Scriptet försöker automatiskt svara Nej på dessa val vid Citrix-installation.
+  Detta följer FK Extern 2605-instruktionen.
+  Om stöd för detta införs i framtiden behöver scriptet ändras.
+
 Media: ${MEDIA_DIR:-automatisk}
 Logg: $LOG_FILE
 ============================================================
@@ -988,6 +1105,10 @@ Net iD:
 Citrix:
   Standardkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
 
+Citrix AppProtection/DeviceTrust/EPAClient:
+  Scriptet har försökt förkonfigurera dessa val till Nej/false.
+  Om FK i framtiden börjar kräva dem behöver scriptet ändras.
+
 Viktigt:
   Starta om datorn efter installationen innan du testar Citrix/remote desktop.
 
@@ -1012,6 +1133,7 @@ main() {
 
   require_cmd sudo
   require_cmd dpkg
+  require_cmd dpkg-deb
   require_cmd apt-get
   require_cmd grep
   require_cmd readlink
