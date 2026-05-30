@@ -1,23 +1,16 @@
 # FK Extern Ubuntu helper
 
-Inofficiella hjälpscript för installation av FK Extern-komponenter på Ubuntu.
+Inofficiella, vibe-kodade hjälpscript för installation av FK Extern-komponenter på Ubuntu.
 
 ## Viktigt
 
 Detta är **inte** en officiell eller supportad installation.
 
+Detta är **vibe-kodat** och bygger på praktisk felsökning i en specifik miljö. Scriptet kan innehålla fel, antaganden och miljöberoenden.
+
 Jag ger **ingen support** på scriptet.
 
-Scriptet är endast avsett för:
-
-- anställda och konsulter på Försäkringskassan
-- Ubuntu
-- användare som redan har rätt att använda FK Extern
-- FK Extern-paketet som publiceras av Försäkringskassan
-
-Scriptet är inte avsett för privatpersoner, andra organisationer, andra Linux-distributioner eller generell Citrix-, Net iD-, smartcard- eller Firefox-support.
-
-Scriptet ger inte åtkomst till några tjänster. Åtkomst styrs fortfarande av behörighet, smartcard, certifikat, PIN och övriga FK Extern-förutsättningar.
+Använd bara scriptet om du själv kan läsa och förstå vad det gör.
 
 ## Scope
 
@@ -206,4 +199,6 @@ Scriptet kör systemändringar med `sudo`, installerar paket och kan rensa tidig
 
 Läs igenom scriptet innan användning.
 
-Jag ger ingen support på scriptet. Användaren ansvarar själv för att förstå vad scriptet gör och för att ha en fungerande arbetsmiljö.
+Detta är vibe-kodat och osupportat. Användaren ansvarar själv för att förstå vad scriptet gör, ha en fungerande backup/återställningsväg och kunna felsöka sin egen arbetsmiljö.
+
+Jag ger ingen support på scriptet.
