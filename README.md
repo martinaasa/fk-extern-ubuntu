@@ -26,6 +26,7 @@ Scriptet hanterar installation av FK Extern-komponenter på Ubuntu:
 - PointSharp Net iD Client från FK:s Ubuntu-paket
 - registrering av Net iD PKCS#11-modul i Firefox
 - grundläggande kontroll av kortläsare
+- användaranpassning av Citrix för mittenklick och `Ctrl+Shift+T`
 
 Scriptet hanterar inte installation eller migrering av Firefox. För det finns separat repo:
 
@@ -110,9 +111,24 @@ Om paketet saknas är den troligaste orsaken att FK har publicerat en nyare vers
 ./scripts/install-fkextern.sh --force-unsupported-os
 ```
 
+## Citrix: mittenklick och Ctrl+Shift+T
+
+Installationsscriptet uppdaterar användarens `~/.ICAClient/wfclient.ini` med:
+
+```ini
+MouseSendsControlV=False
+WCAGModeKeyCombination=
+```
+
+`MouseSendsControlV=False` gör att musens mittenknapp skickas som ett vanligt mittenklick till Citrix-sessionen. Det gör bland annat att mittenklick på en länk i webbläsaren kan öppna länken i en ny flik, i stället för att Citrix översätter klicket till `Ctrl+V`.
+
+En tom `WCAGModeKeyCombination` stänger av Citrix Desktop Viewers egen genväg `Ctrl+Shift+T`. Webbläsaren kan då använda kombinationen för att återöppna den senast stängda fliken eller det senast stängda fönstret.
+
+Ändringen är idempotent och bevarar övriga inställningar i `wfclient.ini`. En pågående Citrix-session behöver återanslutas innan inställningarna säkert gäller.
+
 ## Konservativ Citrix-konfiguration
 
-Scriptet ändrar inte Citrix SmartCard-konfiguration som standard.
+Scriptet ändrar de två användarinställningarna för mus och tangentbord som beskrivs ovan, men ändrar inte Citrix SmartCard- eller systemkonfiguration som standard.
 
 Det var ett medvetet val. Citrix/FK-paketets standardkonfiguration bör lämnas orörd om den fungerar. Scriptet installerar nödvändiga paket och beroenden, men skriver inte om `module.ini`, `AuthManConfig.xml`, `scardConfig.json` eller `usb.conf` utan explicit felsökningsflagga.
 

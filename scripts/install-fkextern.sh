@@ -826,6 +826,109 @@ install_citrix() {
   ok "Citrix-installation klar."
 }
 
+configure_citrix_user_input() {
+  local config_directory="$HOME/.ICAClient"
+  local config_file="$config_directory/wfclient.ini"
+  local input_file="$config_file"
+  local tmp_file
+
+  log "=== Konfigurerar Citrix mus och tangentbord ==="
+
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] skulle sätta MouseSendsControlV=False i $config_file"
+    log "[dry-run] skulle sätta WCAGModeKeyCombination= i $config_file"
+    return
+  fi
+
+  mkdir -p "$config_directory"
+
+  if [[ ! -f "$config_file" ]]; then
+    input_file="/dev/null"
+  fi
+
+  tmp_file="$(mktemp)"
+
+  if ! awk '
+    function emit_missing_settings() {
+      if (!mouse_setting_written) {
+        print "MouseSendsControlV=False"
+        mouse_setting_written = 1
+      }
+
+      if (!toolbar_setting_written) {
+        print "WCAGModeKeyCombination="
+        toolbar_setting_written = 1
+      }
+    }
+
+    BEGIN {
+      in_wfclient = 0
+      wfclient_section_found = 0
+      mouse_setting_written = 0
+      toolbar_setting_written = 0
+    }
+
+    {
+      lower_line = tolower($0)
+
+      if ($0 ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/) {
+        if (in_wfclient) {
+          emit_missing_settings()
+          in_wfclient = 0
+        }
+
+        if (lower_line ~ /^[[:space:]]*\[wfclient\][[:space:]]*$/) {
+          in_wfclient = 1
+          wfclient_section_found = 1
+        }
+      }
+
+      if (in_wfclient && lower_line ~ /^[[:space:]]*mousesendscontrolv[[:space:]]*=/) {
+        if (!mouse_setting_written) {
+          print "MouseSendsControlV=False"
+          mouse_setting_written = 1
+        }
+        next
+      }
+
+      if (in_wfclient && lower_line ~ /^[[:space:]]*wcagmodekeycombination[[:space:]]*=/) {
+        if (!toolbar_setting_written) {
+          print "WCAGModeKeyCombination="
+          toolbar_setting_written = 1
+        }
+        next
+      }
+
+      print
+    }
+
+    END {
+      if (in_wfclient) {
+        emit_missing_settings()
+      } else if (!wfclient_section_found) {
+        if (NR > 0) {
+          print ""
+        }
+
+        print "[WFClient]"
+        emit_missing_settings()
+      }
+    }
+  ' "$input_file" >"$tmp_file"; then
+    rm -f "$tmp_file"
+    fail "Kunde inte uppdatera $config_file"
+  fi
+
+  if [[ -f "$config_file" ]]; then
+    chmod --reference="$config_file" "$tmp_file"
+  fi
+
+  mv "$tmp_file" "$config_file"
+
+  ok "Mittenknappen skickas som mittenklick i Citrix-sessionen."
+  ok "Citrix-genvägen Ctrl+Shift+T är avstängd så att webbläsaren kan använda den."
+}
+
 install_netid() {
   log "=== Installerar NetiD Client ==="
 
@@ -1103,7 +1206,9 @@ Net iD:
   $NETID_LIB
 
 Citrix:
-  Standardkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
+  Mittenknappen skickas som ett vanligt mittenklick.
+  Citrix-genvägen Ctrl+Shift+T är avstängd så att webbläsaren kan använda den.
+  SmartCard-/systemkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
 
 Citrix AppProtection/DeviceTrust/EPAClient:
   Scriptet har försökt förkonfigurera dessa val till Nej/false.
@@ -1161,6 +1266,7 @@ main() {
   install_pcsc_and_reader_tools
   verify_pcsclite_for_citrix
   install_citrix
+  configure_citrix_user_input
   install_netid
   configure_citrix_optional
   register_netid_in_firefox_profiles
@@ -1170,4 +1276,6 @@ main() {
   ok "Klart."
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
