@@ -124,7 +124,11 @@ WCAGModeKeyCombination=
 
 En tom `WCAGModeKeyCombination` stänger av Citrix Desktop Viewers egen genväg `Ctrl+Shift+T`. Webbläsaren kan då använda kombinationen för att återöppna den senast stängda fliken eller det senast stängda fönstret.
 
-Ändringen är idempotent och bevarar övriga inställningar i `wfclient.ini`. En pågående Citrix-session behöver återanslutas innan inställningarna säkert gäller.
+Inställningarna sätts automatiskt efter Citrix-installationen, även när Citrix redan är installerat och efter `--reset-user-citrix-cache`. Saknas `wfclient.ini` skapas den från Citrix installerade mall.
+
+Övriga inställningar och filens behörigheter bevaras. Filen säkerhetskopieras till `wfclient.ini.bak.<tidsstämpel>` om den behöver ändras. Om rätt inställningar redan finns lämnas filen orörd och ingen ny backup skapas. En pågående Citrix-session behöver återanslutas för att läsa in ändringen.
+
+Se [Citrix dokumentation för Ctrl+Shift+T](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/store-configuration.html#modify-or-disable-a-keyboard-shortcut-combinations).
 
 ## Konservativ Citrix-konfiguration
 

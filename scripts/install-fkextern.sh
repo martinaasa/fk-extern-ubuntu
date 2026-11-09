@@ -750,6 +750,7 @@ install_pcsc_and_reader_tools() {
   apt_install_package libccid
   apt_install_package libnss3-tools
   apt_install_package libpcsclite-dev
+  apt_install_package python3
 
   run sudo systemctl enable pcscd
   run sudo systemctl restart pcscd
@@ -827,10 +828,7 @@ install_citrix() {
 }
 
 configure_citrix_user_input() {
-  local config_directory="$HOME/.ICAClient"
-  local config_file="$config_directory/wfclient.ini"
-  local input_file="$config_file"
-  local tmp_file
+  local config_file="$HOME/.ICAClient/wfclient.ini"
 
   log "=== Konfigurerar Citrix mus och tangentbord ==="
 
@@ -840,93 +838,71 @@ configure_citrix_user_input() {
     return
   fi
 
-  mkdir -p "$config_directory"
+  python3 - "$config_file" /opt/Citrix/ICAClient/config/wfclient.template <<'PY_KEYBOARD'
+import os
+import re
+import shutil
+import stat
+import sys
+import tempfile
+from datetime import datetime
+from pathlib import Path
 
-  if [[ ! -f "$config_file" ]]; then
-    input_file="/dev/null"
-  fi
+config, template = map(Path, sys.argv[1:])
+exists = config.exists()
+original = config.read_bytes() if exists else template.read_bytes()
+newline = b'\r\n' if b'\r\n' in original else b'\n'
+settings = [(b'MouseSendsControlV', b'False'), (b'WCAGModeKeyCombination', b'')]
+lines = original.splitlines(keepends=True)
+start = next((i for i, line in enumerate(lines) if line.strip().lower() == b'[wfclient]'), None)
+if start is None:
+    if lines and not lines[-1].endswith(b'\n'):
+        lines[-1] += newline
+    start = len(lines)
+    lines.append(b'[WFClient]' + newline)
+for key, value in settings:
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].lstrip().startswith(b'[')), len(lines))
+    keys = [i for i in range(start + 1, end) if re.match(rb'\s*' + re.escape(key) + rb'\s*=', lines[i], re.I)]
+    setting = key + b'=' + value
+    if keys:
+        for i in reversed(keys):
+            if i == keys[0]:
+                ending = b'\r\n' if lines[i].endswith(b'\r\n') else b'\n' if lines[i].endswith(b'\n') else b''
+                if lines[i].partition(b'=')[2].strip() != value:
+                    lines[i] = setting + ending
+            else:
+                del lines[i]
+    else:
+        if not lines[start].endswith(b'\n'):
+            lines[start] += newline
+        lines.insert(start + 1, setting + newline)
+updated = b''.join(lines)
+if exists and updated == original:
+    print(f'{config}: Mus och tangentbord är redan konfigurerade.')
+    sys.exit(0)
 
-  tmp_file="$(mktemp)"
-
-  if ! awk '
-    function emit_missing_settings() {
-      if (!mouse_setting_written) {
-        print "MouseSendsControlV=False"
-        mouse_setting_written = 1
-      }
-
-      if (!toolbar_setting_written) {
-        print "WCAGModeKeyCombination="
-        toolbar_setting_written = 1
-      }
-    }
-
-    BEGIN {
-      in_wfclient = 0
-      wfclient_section_found = 0
-      mouse_setting_written = 0
-      toolbar_setting_written = 0
-    }
-
-    {
-      lower_line = tolower($0)
-
-      if ($0 ~ /^[[:space:]]*\[[^]]+\][[:space:]]*$/) {
-        if (in_wfclient) {
-          emit_missing_settings()
-          in_wfclient = 0
-        }
-
-        if (lower_line ~ /^[[:space:]]*\[wfclient\][[:space:]]*$/) {
-          in_wfclient = 1
-          wfclient_section_found = 1
-        }
-      }
-
-      if (in_wfclient && lower_line ~ /^[[:space:]]*mousesendscontrolv[[:space:]]*=/) {
-        if (!mouse_setting_written) {
-          print "MouseSendsControlV=False"
-          mouse_setting_written = 1
-        }
-        next
-      }
-
-      if (in_wfclient && lower_line ~ /^[[:space:]]*wcagmodekeycombination[[:space:]]*=/) {
-        if (!toolbar_setting_written) {
-          print "WCAGModeKeyCombination="
-          toolbar_setting_written = 1
-        }
-        next
-      }
-
-      print
-    }
-
-    END {
-      if (in_wfclient) {
-        emit_missing_settings()
-      } else if (!wfclient_section_found) {
-        if (NR > 0) {
-          print ""
-        }
-
-        print "[WFClient]"
-        emit_missing_settings()
-      }
-    }
-  ' "$input_file" >"$tmp_file"; then
-    rm -f "$tmp_file"
-    fail "Kunde inte uppdatera $config_file"
-  fi
-
-  if [[ -f "$config_file" ]]; then
-    chmod --reference="$config_file" "$tmp_file"
-  fi
-
-  mv "$tmp_file" "$config_file"
+config.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+mode = stat.S_IMODE(config.stat().st_mode) if exists else 0o600
+if exists:
+    backup = config.with_name(config.name + '.bak.' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+    shutil.copy2(config, backup)
+    print(f'Säkerhetskopia: {backup}')
+fd, temp_name = tempfile.mkstemp(prefix='.wfclient-', dir=config.parent)
+try:
+    with os.fdopen(fd, 'wb') as output:
+        os.fchmod(output.fileno(), mode)
+        output.write(updated)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temp_name, config)
+finally:
+    if os.path.exists(temp_name):
+        os.unlink(temp_name)
+print(f'{config}: MouseSendsControlV=False och WCAGModeKeyCombination= har satts i [WFClient].')
+PY_KEYBOARD
 
   ok "Mittenknappen skickas som mittenklick i Citrix-sessionen."
-  ok "Citrix-genvägen Ctrl+Shift+T är avstängd så att webbläsaren kan använda den."
+  ok "Citrix-genvägen Ctrl+Shift+T är avstängd. Återanslut öppna Citrix-sessioner för att läsa in ändringen."
 }
 
 install_netid() {
@@ -973,7 +949,7 @@ configure_citrix_optional() {
 
   if [[ "$SET_CITRIX_PCSCLIBRARY_FULL_PATH" != "1" &&
         "$DISABLE_CITRIX_USB_SMARTCARD" != "1" ]]; then
-    log "Hoppar över ändring av Citrix-konfig. Standardkonfiguration lämnas orörd."
+    log "Hoppar över ändring av Citrix SmartCard- och USB-konfiguration."
     return
   fi
 

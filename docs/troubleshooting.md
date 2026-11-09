@@ -55,10 +55,20 @@ sudo apt install libpcsclite-dev
 sudo ldconfig
 ```
 
+## Ctrl+Shift+T öppnar Citrix verktygsfält i stället för senaste stängda fliken
+
+Installationsscriptet stänger automatiskt av Citrix bindning för `Ctrl+Shift+T`. Kontrollera att `~/.ICAClient/wfclient.ini` innehåller följande under `[WFClient]`:
+
+```ini
+WCAGModeKeyCombination=
+```
+
+Värdet efter `=` ska vara tomt. Koppla från och återanslut Citrix-sessionen, fokusera webbläsaren i fjärrsessionen och prova igen.
+
 ## Rensa användarens Citrix-cache
 
 ```bash
 ./scripts/install-fkextern.sh --reset-user-citrix-cache
 ```
 
-Detta flyttar undan `~/.ICAClient` till en backup-katalog.
+Detta flyttar undan `~/.ICAClient` till en backup-katalog. Efter Citrix-installationen skapas användarkonfigurationen på nytt med `Ctrl+Shift+T` frigjort för fjärrsessionen.
