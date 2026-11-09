@@ -828,17 +828,38 @@ install_citrix() {
 }
 
 configure_citrix_user_input() {
-  local config_file="$HOME/.ICAClient/wfclient.ini"
+  local config_file="${1:-$HOME/.ICAClient/wfclient.ini}"
+  local template_file="${2:-/opt/Citrix/ICAClient/config/wfclient.template}"
+  local setting hotkey_number
+  local -a settings=(
+    'MouseSendsControlV=False'
+    'WCAGModeKeyCombination='
+    'TransparentKeyPassthrough=Remote'
+    'UseCtrlAltEnd=True'
+    'KeyPassthroughEscapeChar=Pause'
+    'KeyPassthroughEscapeShift=Alt+Ctrl+Shift'
+    'RelativeMouseOnChar=Pause'
+    'RelativeMouseOnShift=Alt+Shift'
+    'RelativeMouseOffChar=Pause'
+    'RelativeMouseOffShift=Alt+Shift'
+  )
+
+  # Disable translated Alt+Fn mappings by key, keeping their modifiers intact.
+  # Setting only the modifier to (none) would risk capturing an unmodified Fn.
+  for hotkey_number in {1..12}; do
+    settings+=("Hotkey${hotkey_number}Char=(none)")
+  done
 
   log "=== Konfigurerar Citrix mus och tangentbord ==="
 
   if [[ "$DRY_RUN" == "1" ]]; then
-    log "[dry-run] skulle sätta MouseSendsControlV=False i $config_file"
-    log "[dry-run] skulle sätta WCAGModeKeyCombination= i $config_file"
+    for setting in "${settings[@]}"; do
+      log "[dry-run] skulle sätta $setting i $config_file"
+    done
     return
   fi
 
-  python3 - "$config_file" /opt/Citrix/ICAClient/config/wfclient.template <<'PY_KEYBOARD'
+  python3 - "$config_file" "$template_file" "${settings[@]}" <<'PY_KEYBOARD'
 import os
 import re
 import shutil
@@ -848,11 +869,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-config, template = map(Path, sys.argv[1:])
+config, template = map(Path, sys.argv[1:3])
 exists = config.exists()
 original = config.read_bytes() if exists else template.read_bytes()
 newline = b'\r\n' if b'\r\n' in original else b'\n'
-settings = [(b'MouseSendsControlV', b'False'), (b'WCAGModeKeyCombination', b'')]
+settings = [setting.encode().split(b'=', 1) for setting in sys.argv[3:]]
 lines = original.splitlines(keepends=True)
 start = next((i for i, line in enumerate(lines) if line.strip().lower() == b'[wfclient]'), None)
 if start is None:
@@ -898,11 +919,14 @@ try:
 finally:
     if os.path.exists(temp_name):
         os.unlink(temp_name)
-print(f'{config}: MouseSendsControlV=False och WCAGModeKeyCombination= har satts i [WFClient].')
+print(f'{config}: {len(settings)} inmatningsinställningar har satts i [WFClient].')
 PY_KEYBOARD
 
   ok "Mittenknappen skickas som mittenklick i Citrix-sessionen."
-  ok "Citrix-genvägen Ctrl+Shift+T är avstängd. Återanslut öppna Citrix-sessioner för att läsa in ändringen."
+  ok "Ctrl+Shift+T, Ctrl+Shift+F1–F12, Ctrl+F2 och Ctrl+Alt+Enter är frigjorda."
+  ok "Systemgenvägar begärs till fjärrsessionen även i fönsterläge."
+  ok "Släpp tangentbordsfångsten med Ctrl+Alt+Shift+Pause. Relativ mus växlas med Alt+Shift+Pause."
+  ok "Återanslut öppna Citrix-sessioner för att läsa in ändringen."
 }
 
 install_netid() {
@@ -1183,7 +1207,9 @@ Net iD:
 
 Citrix:
   Mittenknappen skickas som ett vanligt mittenklick.
-  Citrix-genvägen Ctrl+Shift+T är avstängd så att webbläsaren kan använda den.
+  Vanliga programgenvägar frigörs och systemgenvägar begärs till fjärrsessionen.
+  Ctrl+Alt+End skickar Ctrl+Alt+Delete till fjärrsessionen.
+  Ctrl+Alt+Shift+Pause släpper tangentbordsfångsten; Alt+Shift+Pause växlar relativ mus.
   SmartCard-/systemkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
 
 Citrix AppProtection/DeviceTrust/EPAClient:

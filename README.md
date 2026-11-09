@@ -26,7 +26,7 @@ Scriptet hanterar installation av FK Extern-komponenter på Ubuntu:
 - PointSharp Net iD Client från FK:s Ubuntu-paket
 - registrering av Net iD PKCS#11-modul i Firefox
 - grundläggande kontroll av kortläsare
-- användaranpassning av Citrix för mittenklick och `Ctrl+Shift+T`
+- användaranpassning av Citrix för mittenklick och vanliga kortkommandon
 
 Scriptet hanterar inte installation eller migrering av Firefox. För det finns separat repo:
 
@@ -111,28 +111,54 @@ Om paketet saknas är den troligaste orsaken att FK har publicerat en nyare vers
 ./scripts/install-fkextern.sh --force-unsupported-os
 ```
 
-## Citrix: mittenklick och Ctrl+Shift+T
+## Citrix: mus och vanliga kortkommandon
 
 Installationsscriptet uppdaterar användarens `~/.ICAClient/wfclient.ini` med:
 
 ```ini
+[WFClient]
 MouseSendsControlV=False
 WCAGModeKeyCombination=
+TransparentKeyPassthrough=Remote
+UseCtrlAltEnd=True
+KeyPassthroughEscapeChar=Pause
+KeyPassthroughEscapeShift=Alt+Ctrl+Shift
+RelativeMouseOnChar=Pause
+RelativeMouseOnShift=Alt+Shift
+RelativeMouseOffChar=Pause
+RelativeMouseOffShift=Alt+Shift
 ```
 
 `MouseSendsControlV=False` gör att musens mittenknapp skickas som ett vanligt mittenklick till Citrix-sessionen. Det gör bland annat att mittenklick på en länk i webbläsaren kan öppna länken i en ny flik, i stället för att Citrix översätter klicket till `Ctrl+V`.
 
-En tom `WCAGModeKeyCombination` stänger av Citrix Desktop Viewers egen genväg `Ctrl+Shift+T`. Webbläsaren kan då använda kombinationen för att återöppna den senast stängda fliken eller det senast stängda fönstret.
+Scriptet sätter också `Hotkey1Char` till och med `Hotkey12Char` till `(none)`. Detta stänger av Citrix översättning av `Ctrl+Shift+F1–F12` till `Alt+F1–F12`. Modifierarinställningarna lämnas kvar; att bara ta bort modifierarna kan i stället fånga vanliga funktionstangenter.
+
+| Genväg | Citrix beteende före anpassningen | Automatisk anpassning |
+| --- | --- | --- |
+| `Ctrl+Shift+T` | Öppnar Desktop Viewers verktygsfält. | Verktygsfältsbindningen stängs av så webbläsaren kan återöppna en stängd flik. |
+| `Ctrl+Shift+F1–F12` | Kan översättas till `Alt+F1–F12` i översatt tangentbordsläge. | De tolv översättningarna stängs av via `Hotkey1Char`–`Hotkey12Char`. |
+| `Ctrl+F2` | Släpper tangentbordsfångsten; kan också växla helskärm om den funktionen aktiverats. | Citrix-genvägen flyttas till `Ctrl+Alt+Shift+Pause`. |
+| `Ctrl+Alt+Enter` | Skickar normalt `Ctrl+Alt+Delete` till fjärrsessionen. | Den funktionen flyttas till `Ctrl+Alt+End`. |
+| `Ctrl+F12` / `Ctrl+Shift+F12` | Styr relativ mus när den funktionen är aktiverad. | Relativ mus växlas med `Alt+Shift+Pause`; musläget i sig bevaras. |
+| `Alt+Tab` och Windows-genvägar | Skickas normalt till lokal dator i fönsterläge. | `TransparentKeyPassthrough=Remote` begär att de går till fjärrsessionen även i fönsterläge. |
+
+`Ctrl+Alt+Shift+Pause` ger en separat väg tillbaka till lokala program. Verktygsfältets musknappar kan också användas för att minimera sessionen eller lämna helskärm om tangentbordet saknar Pause. Lokala skrivbordsgenvägar och Wayland kan fortfarande ha företräde framför Citrix; denna anpassning ändrar Citrix inställningar.
 
 Inställningarna sätts automatiskt efter Citrix-installationen, även när Citrix redan är installerat och efter `--reset-user-citrix-cache`. Saknas `wfclient.ini` skapas den från Citrix installerade mall.
 
 Övriga inställningar och filens behörigheter bevaras. Filen säkerhetskopieras till `wfclient.ini.bak.<tidsstämpel>` om den behöver ändras. Om rätt inställningar redan finns lämnas filen orörd och ingen ny backup skapas. En pågående Citrix-session behöver återanslutas för att läsa in ändringen.
 
-Se [Citrix dokumentation för Ctrl+Shift+T](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/store-configuration.html#modify-or-disable-a-keyboard-shortcut-combinations).
+Källor: [Citrix tangentbordsinställningar](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/devices/keyboard.html), [felsökning av kortkommandon](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/troubleshooting.html#keyboard-shortcuts), [Linux OEM-referens](https://github.com/citrix/workspace-linux-oem-guide/blob/master/docs/reference-information.md), [verktygsfältsgenväg](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/store-configuration.html#modify-or-disable-a-keyboard-shortcut-combinations) och [relativ mus i Linux-guiden](https://docs.citrix.com/en-us/citrix-workspace-app-for-linux/downloads/citrix-workspace-app-for-linux-2311.pdf).
+
+Konfigurationsdelen kan testas utan att installera paket eller ändra användarens riktiga Citrix-konfiguration:
+
+```bash
+python3 -B -m unittest discover -s tests -v
+```
 
 ## Konservativ Citrix-konfiguration
 
-Scriptet ändrar de två användarinställningarna för mus och tangentbord som beskrivs ovan, men ändrar inte Citrix SmartCard- eller systemkonfiguration som standard.
+Scriptet ändrar användarinställningarna för mus och tangentbord som beskrivs ovan, men ändrar inte Citrix SmartCard- eller systemkonfiguration som standard.
 
 Det var ett medvetet val. Citrix/FK-paketets standardkonfiguration bör lämnas orörd om den fungerar. Scriptet installerar nödvändiga paket och beroenden, men skriver inte om `module.ini`, `AuthManConfig.xml`, `scardConfig.json` eller `usb.conf` utan explicit felsökningsflagga.
 

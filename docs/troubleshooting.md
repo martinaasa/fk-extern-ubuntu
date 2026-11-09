@@ -65,6 +65,22 @@ WCAGModeKeyCombination=
 
 Värdet efter `=` ska vara tomt. Koppla från och återanslut Citrix-sessionen, fokusera webbläsaren i fjärrsessionen och prova igen.
 
+## Andra kortkommandon fångas av Citrix
+
+Installationsscriptet frigör även `Ctrl+Shift+F1–F12`, `Ctrl+F2` och `Ctrl+Alt+Enter`. När relativ mus används flyttas också dess `Ctrl+F12`- och `Ctrl+Shift+F12`-bindningar. Inställningarna och källorna finns i README under **Citrix: mus och vanliga kortkommandon**.
+
+Efter anpassningen används följande Citrix-genvägar:
+
+- `Ctrl+Alt+Shift+Pause`: släpp tangentbordsfångsten för lokala program; används också för helskärmsväxling om den funktionen är aktiverad.
+- `Ctrl+Alt+End`: skicka `Ctrl+Alt+Delete` till fjärrsessionen.
+- `Alt+Shift+Pause`: växla relativ mus när den funktionen är aktiverad.
+
+Verktygsfältets musknappar kan användas för att minimera sessionen eller lämna helskärm om tangentbordet saknar Pause.
+
+För `Alt+Tab` och Windows-genvägar sätter scriptet `TransparentKeyPassthrough=Remote`, så att Citrix begär dem även i fönsterläge. Om de ändå går till den lokala datorn, kontrollera lokala Ubuntu-genvägar och om sessionen körs under Wayland. Sådana reservationer kan ha företräde framför Citrix.
+
+Koppla från och återanslut Citrix-sessionen efter ändringar i konfigurationen.
+
 ## Rensa användarens Citrix-cache
 
 ```bash
