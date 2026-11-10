@@ -827,6 +827,85 @@ install_citrix() {
   ok "Citrix-installation klar."
 }
 
+configure_citrix_auth_logging() {
+  local config_file="${1:-/opt/Citrix/ICAClient/config/AuthManConfig.xml}"
+
+  log "=== Stänger av Citrix autentiseringsspårning ==="
+  if [[ "$DRY_RUN" == "1" ]]; then
+    log "[dry-run] skulle sätta TracingEnabled=false i $config_file"
+    return
+  fi
+
+  sudo python3 - "$config_file" <<'PY_AUTH_LOG'
+from datetime import datetime
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import sys
+import tempfile
+import xml.etree.ElementTree as ET
+
+config = Path(sys.argv[1])
+original = config.read_bytes()
+root = ET.fromstring(original)
+if root.tag != 'dict':
+    raise ValueError('Unexpected AuthManConfig.xml format')
+children = list(root)
+keys = [i for i, child in enumerate(children)
+        if child.tag == 'key' and (child.text or '').strip() == 'TracingEnabled']
+if len(keys) > 1:
+    raise ValueError('Duplicate TracingEnabled settings')
+if keys:
+    index = keys[0] + 1
+    if index >= len(children) or children[index].tag != 'value':
+        raise ValueError('Missing TracingEnabled value')
+    value = (children[index].text or '').strip().lower()
+    if value == 'false':
+        print(f'{config}: autentiseringsspårning är redan avstängd.')
+        sys.exit(0)
+    if value != 'true':
+        raise ValueError('Unexpected TracingEnabled value')
+    pattern = rb'(<key>\s*TracingEnabled\s*</key>\s*<value>\s*)true(\s*</value>)'
+    updated, count = re.subn(pattern, rb'\g<1>false\g<2>', original, flags=re.I)
+    if count != 1:
+        raise ValueError('Could not locate the TracingEnabled value')
+else:
+    position = original.rfind(b'</dict>')
+    if position == -1:
+        raise ValueError('Missing closing configuration dictionary')
+    newline = b'\r\n' if b'\r\n' in original else b'\n'
+    setting = b'\t<key>TracingEnabled</key>' + newline + b'\t<value>false</value>' + newline
+    updated = original[:position] + setting + original[position:]
+ET.fromstring(updated)
+
+metadata = config.stat()
+backup = config.with_name(config.name + '.bak.' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+shutil.copy2(config, backup)
+fd, temporary = tempfile.mkstemp(prefix='.authman-tracing-', dir=config.parent)
+try:
+    with os.fdopen(fd, 'wb') as output:
+        os.fchmod(output.fileno(), stat.S_IMODE(metadata.st_mode))
+        current = os.fstat(output.fileno())
+        if (current.st_uid, current.st_gid) != (metadata.st_uid, metadata.st_gid):
+            os.fchown(output.fileno(), metadata.st_uid, metadata.st_gid)
+        output.write(updated)
+        output.flush()
+        os.fsync(output.fileno())
+    if config.read_bytes() != original:
+        raise RuntimeError('Configuration changed during update')
+    os.replace(temporary, config)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+print(f'Säkerhetskopia: {backup}')
+print(f'{config}: TracingEnabled=false.')
+PY_AUTH_LOG
+
+  ok "Citrix autentiseringsspårning är avstängd. Inställningen läses vid nästa start av autentiseringstjänsten."
+}
+
 configure_citrix_user_input() {
   local config_file="${1:-$HOME/.ICAClient/wfclient.ini}"
   local template_file="${2:-/opt/Citrix/ICAClient/config/wfclient.template}"
@@ -1210,7 +1289,8 @@ Citrix:
   Vanliga programgenvägar frigörs och systemgenvägar begärs till fjärrsessionen.
   Ctrl+Alt+End skickar Ctrl+Alt+Delete till fjärrsessionen.
   Ctrl+Alt+Shift+Pause släpper tangentbordsfångsten; Alt+Shift+Pause växlar relativ mus.
-  SmartCard-/systemkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
+  Autentiseringens funktionsspårning är avstängd för att förebygga mycket stora loggfiler.
+  Övrig SmartCard-/systemkonfiguration har lämnats orörd om du inte använde explicit felsökningsflagga.
 
 Citrix AppProtection/DeviceTrust/EPAClient:
   Scriptet har försökt förkonfigurera dessa val till Nej/false.
@@ -1271,6 +1351,7 @@ main() {
   configure_citrix_user_input
   install_netid
   configure_citrix_optional
+  configure_citrix_auth_logging
   register_netid_in_firefox_profiles
   check_card_reader
   print_summary

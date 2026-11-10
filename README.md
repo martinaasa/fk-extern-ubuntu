@@ -27,6 +27,7 @@ Scriptet hanterar installation av FK Extern-komponenter på Ubuntu:
 - registrering av Net iD PKCS#11-modul i Firefox
 - grundläggande kontroll av kortläsare
 - användaranpassning av Citrix för mittenklick och vanliga kortkommandon
+- avstängning av Citrix autentiseringsspårning för att förebygga skenande loggfiler
 
 Scriptet hanterar inte installation eller migrering av Firefox. För det finns separat repo:
 
@@ -158,9 +159,11 @@ python3 -B -m unittest discover -s tests -v
 
 ## Konservativ Citrix-konfiguration
 
-Scriptet ändrar användarinställningarna för mus och tangentbord som beskrivs ovan, men ändrar inte Citrix SmartCard- eller systemkonfiguration som standard.
+Scriptet sätter `TracingEnabled=false` i `/opt/Citrix/ICAClient/config/AuthManConfig.xml` efter installationen av Citrix och Net iD. På en drabbad installation skrev autentiseringstjänstens smartkortsövervakning omkring 15 GiB loggtext per timme med spårningen påslagen, trots `LoggingMode=normal`.
 
-Det var ett medvetet val. Citrix/FK-paketets standardkonfiguration bör lämnas orörd om den fungerar. Scriptet installerar nödvändiga paket och beroenden, men skriver inte om `module.ini`, `AuthManConfig.xml`, `scardConfig.json` eller `usb.conf` utan explicit felsökningsflagga.
+Endast spårningsflaggan ändras, med backup vid behov. Kortinloggning, PKCS#11-modul, kortläsarövervakning och övriga autentiseringsinställningar bevaras. Om spårningen redan är avstängd lämnas filen orörd. Inställningen läses när autentiseringstjänsten startas, alltså vid den omstart som redan krävs efter installationen. Se [Citrix dokumentation om spårning och loggar](https://docs.citrix.com/us/en/citrix-workspace-app-for-linux/troubleshooting.html).
+
+Användarinställningarna för mus och tangentbord beskrivs ovan. Ändringar i `module.ini`, `scardConfig.json` och `usb.conf` kräver fortfarande explicit felsökningsflagga.
 
 Felsökningsflaggor finns, men bör inte användas normalt:
 

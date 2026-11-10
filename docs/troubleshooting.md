@@ -81,6 +81,20 @@ För `Alt+Tab` och Windows-genvägar sätter scriptet `TransparentKeyPassthrough
 
 Koppla från och återanslut Citrix-sessionen efter ändringar i konfigurationen.
 
+## AuthManSvr-loggen växer snabbt
+
+Filerna `~/.ICAClient/logs/AuthManSvr-*.log` kan bli mycket stora när `TracingEnabled=true` är påslaget i `/opt/Citrix/ICAClient/config/AuthManConfig.xml`. `LoggingMode=normal` stänger inte av den separata funktionsspårningen. Kontrollera flaggan med:
+
+```bash
+grep -A1 '<key>TracingEnabled</key>' /opt/Citrix/ICAClient/config/AuthManConfig.xml
+```
+
+Installationsscriptet sätter automatiskt `TracingEnabled=false`, med backup. Nästa start av autentiseringstjänsten läser in ändringen. Inga kortinloggningsinställningar ändras för detta.
+
+Kontrollera separat om `AuthManagerDaemon` använder mycket CPU även när loggskrivningen har stoppat. Det kan vara ett ytterligare fel i kortläsarövervakningen; en stängd loggflod bevisar inte att CPU-problemet är löst.
+
+Spara ett begränsat felsökningsutdrag före rensning av en stor logg. Kontrollera vilka processer som håller filen öppen. Om en backup läser filen kan den behålla diskutrymmet efter borttagning tills läsningen stängs. På komprimerande filsystem kan loggens textstorlek vara mycket större än det faktiskt allokerade utrymmet.
+
 ## Rensa användarens Citrix-cache
 
 ```bash
